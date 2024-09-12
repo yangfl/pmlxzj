@@ -1,0 +1,13 @@
+*.d
+*.o
+*.so*
+
+.vscode/
+build*/
+subprojects/
+out/
+tmp/
+
+.gdb_history
+
+plzj

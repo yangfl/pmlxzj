@@ -1,0 +1,105 @@
+#pragma code_page(65001)
+
+#include "winres.h"
+
+#ifndef PROJECT_MAJOR
+#  define PROJECT_MAJOR 0
+#endif
+#ifndef PROJECT_MINOR
+#  define PROJECT_MINOR 0
+#endif
+#ifndef PROJECT_PATCH
+#  define PROJECT_PATCH 0
+#endif
+#ifndef PROJECT_BUILD
+#  define PROJECT_BUILD 0
+#endif
+
+#ifdef SPECIAL_BUILD
+#  define VER_SPECIALBUILD VS_FF_SPECIALBUILD
+#else
+#  define VER_SPECIALBUILD 0
+#endif
+
+#ifdef PRIVATE_BUILD
+#  define VER_PRIVATEBUILD VS_FF_PRIVATEBUILD
+#else
+#  define VER_PRIVATEBUILD 0
+#endif
+
+#ifdef PRERELEASE
+#  define VER_PRERELEASE VS_FF_PRERELEASE
+#else
+#  define VER_PRERELEASE 0
+#endif
+
+#ifdef _DEBUG
+#  define VER_DEBUG VS_FF_DEBUG
+#else
+#  define VER_DEBUG 0
+#endif
+
+#ifdef PLZJ_BUILDING_DLL
+#  define VER_FILETYPE VFT_DLL
+#else
+#  define VER_FILETYPE VFT_APP
+#endif
+
+#ifndef COMPANY_NAME
+#  define COMPANY_NAME PROJECT_NAME
+#endif
+#ifndef FILE_VERSION
+#  define FILE_VERSION PROJECT_VERSION
+#endif
+#ifndef TARGET_NAME
+#  define TARGET_NAME PROJECT_NAME
+#endif
+#ifndef FILE_NAME
+#  ifdef PLZJ_BUILDING_DLL
+#    define FILE_NAME TARGET_NAME ".dll"
+#  else
+#    define FILE_NAME TARGET_NAME ".exe"
+#  endif
+#endif
+
+
+LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
+
+
+// MAINICON    ICON   "plzj.ico"
+
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     PROJECT_MAJOR,PROJECT_MINOR,PROJECT_PATCH,PROJECT_BUILD
+PRODUCTVERSION  PROJECT_MAJOR,PROJECT_MINOR,PROJECT_PATCH,0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       (VER_SPECIALBUILD|VER_PRIVATEBUILD|VER_PRERELEASE|VER_DEBUG)
+FILEOS          VOS__WINDOWS32
+FILETYPE        VER_FILETYPE
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080403a8"
+        BEGIN
+            VALUE "CompanyName", COMPANY_NAME
+            VALUE "FileDescription", "无损转换《屏幕录像专家》视频"
+            VALUE "FileVersion", FILE_VERSION
+            VALUE "InternalName", TARGET_NAME
+            VALUE "LegalCopyright", "https://github.com/yangfl/pmlxzj"
+            VALUE "OriginalFilename", FILE_NAME
+#ifdef PRIVATE_BUILD
+            VALUE "PrivateBuild", PRIVATE_BUILD
+#endif
+            VALUE "ProductName", PROJECT_NAME
+            VALUE "ProductVersion", PROJECT_VERSION
+#ifdef SPECIAL_BUILD
+            VALUE "SpecialBuild", SPECIAL_BUILD
+#endif
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 936
+    END
+END
