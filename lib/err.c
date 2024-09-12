@@ -1,0 +1,33 @@
+#include <string.h>
+#include <threads.h>
+#include <zlib.h>
+
+#include "macro.h"
+#include "log.h"
+
+
+static const char *const errstrs[] = {
+  "Invalid argument",
+  "Stopped",
+  "File format error or damaged",
+  "Format not supported yet",
+  "Password required",
+};
+
+
+const char *pmlxzj_strerror (int ret) {
+  if_fail (ret >= PL_EINVAL && ret <= PL_EKEY) {
+    static thread_local char buf[128];
+    snprintf(buf, sizeof(buf), "Unknown error number %d", ret);
+    return buf;
+  }
+
+  return errstrs[ret - PL_EINVAL];
+}
+
+
+__attribute__((constructor))
+static void err_init () {
+  sc_register_strerror(PL_E_PL, pmlxzj_strerror);
+  sc_register_strerror(PL_E_ZLIB, zError);
+}
