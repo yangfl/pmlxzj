@@ -14,7 +14,6 @@ src = [
   'lib/alg.c',
   'lib/audio.c',
   'lib/err.c',
-  'lib/image.c',
   'lib/iter.c',
   'lib/log.c',
   'lib/parser.c',

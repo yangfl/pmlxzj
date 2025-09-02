@@ -8,13 +8,11 @@ extern "C" {
 #include "include/defs.h"
 
 
-extern const unsigned char depth5to8_table[];
-extern const unsigned char depth6to8_table[];
-
 __attribute_artificial__ __attribute_warn_unused_result__ __attribute_const__
 static inline unsigned char to_depth8 (
     unsigned char depth, unsigned char color) {
-  return (depth == 5 ? depth5to8_table : depth6to8_table)[color];
+  // https://stackoverflow.com/questions/2442576
+  return (depth == 5 ? color * 527 + 23 : color * 259 + 33) >> 6;
 }
 
 
