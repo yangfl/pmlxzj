@@ -441,26 +441,34 @@ int Plzj_extract_audio (const struct Plzj *pl, const char *dir) {
     ERR_STD(fseeko);
 
   size_t dir_len = strlen(dir);
-  char path[dir_len + 65];
+  char *path = malloc(dir_len + 65);
+  return_if_fail (path != NULL) ERR_STD(malloc);
   memcpy(path, dir, dir_len);
   char *filename = path + dir_len;
   filename[0] = DIR_SEP;
   filename++;
 
+  int ret;
   switch (le32toh(pl->player.audio_type)) {
     case PLZJ_AUDIO_WAV:
-      return _Plzj_extract_audio_wav(pl->file, path, filename);
+      ret = _Plzj_extract_audio_wav(pl->file, path, filename);
+      break;
     case PLZJ_AUDIO_WAV_ZLIB:
-      return _Plzj_extract_audio_wav_zlib(pl->file, path, filename);
+      ret = _Plzj_extract_audio_wav_zlib(pl->file, path, filename);
+      break;
     case PLZJ_AUDIO_MP3:
-      return _Plzj_extract_audio_mp3(pl->file, path, filename);
+      ret = _Plzj_extract_audio_mp3(pl->file, path, filename);
+      break;
     case PLZJ_AUDIO_TRUESPEECH:
-      return _Plzj_extract_audio_truespeech(pl->file, path, filename);
+      ret = _Plzj_extract_audio_truespeech(pl->file, path, filename);
+      break;
     case PLZJ_AUDIO_AAC:
-      return _Plzj_extract_audio_aac(pl->file, path, filename);
+      ret = _Plzj_extract_audio_aac(pl->file, path, filename);
+      break;
     default:
-      return ERR(PL_ENOTSUP);
+      ret = ERR(PL_ENOTSUP);
   }
 
-  return 0;
+  free(path);
+  return ret;
 }

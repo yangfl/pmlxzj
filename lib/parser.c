@@ -250,6 +250,11 @@ int Plzj_init (
     file, pl->video_offset, SEEK_SET, &pl->video, sizeof(pl->video));
   goto_if_fail (ret == 0) fail;
 
+  if (le32toh(pl->video.frame_ms) == 0) {
+    sc_warning("frame_ms is 0, resetting to 200 (5 FPS)\n");
+    pl->video.frame_ms = htole32(200);
+  }
+
   // lock state
   uint32_t editlock_key = le32toh(pl->footer.editlock_key);
   uint32_t playlock_cksum = le32toh(pl->footer.playlock_cksum);
@@ -376,6 +381,12 @@ int PlzjFile_init (struct PlzjFile *pf, FILE *file) {
       &pf->extfooter, sizeof(pf->extfooter));
     goto_if_fail (ret == 0) fail;
     pf->sections_cnt = le32toh(pf->extfooter.sections_cnt);
+    if_fail (
+        pf->sections_cnt > 0 &&
+        (uint64_t) pf->sections_cnt * 64 <= (uint64_t) pf->file_size) {
+      ret = ERR(PL_EFORMAT);
+      goto fail;
+    }
   }
 
   size_t sections_len = sizeof(pf->sections[0]) * pf->sections_cnt;

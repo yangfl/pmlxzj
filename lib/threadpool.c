@@ -53,6 +53,7 @@ int ThreadPool_init (
 
 #include <assert.h>
 #include <stdalign.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -80,12 +81,12 @@ struct ThreadPoolWorker {
 struct _ThreadPool {
   struct ThreadPoolWorker *workers;
   unsigned int nproc;
-  volatile int err_i;
+  atomic_int err_i;
 
   char name[16];
 
   /// -1: stopped, 0: idle, 1: busy
-  volatile signed char state;
+  atomic_schar state;
   mtx_t mutex;
   cnd_t producer_cond;
   cnd_t consumer_cond;
@@ -311,7 +312,7 @@ int ThreadPool_init (
   }
 
   if_fail (i >= nproc) {
-    pool->workers = realloc(pool->workers, sizeof(pool->workers[0]) * i);
+    sc_warning("ThreadPool: only %u of %u threads spawned\n", i, nproc);
   }
   pool->nproc = i;
   pool->err_i = -1;

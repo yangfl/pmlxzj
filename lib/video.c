@@ -101,8 +101,11 @@ static bool plzj_cursor_valid (const unsigned char *cursor, size_t size) {
   return_if_fail (le16toh(header->idCount) >= 1) false;
 
   return_if_fail (le16toh(entry->bColorCount) >= 1) false;
+  // use 64-bit arithmetic to avoid uint32 wraparound
+  return_if_fail (le32toh(entry->dwDIBSize) >= sizeof(BITMAPINFOHEADER)) false;
   return_if_fail (
-    le32toh(entry->dwDIBSize) + le32toh(entry->dwDIBOffset) <= size) false;
+    (uint64_t) le32toh(entry->dwDIBSize) + le32toh(entry->dwDIBOffset) <=
+    size) false;
 
   const BITMAPINFOHEADER *info = (const void *) (
     cursor + le32toh(entry->dwDIBOffset));
@@ -115,6 +118,21 @@ static bool plzj_cursor_valid (const unsigned char *cursor, size_t size) {
     biBitCount == 1 || biBitCount == 2 || biBitCount == 4 || biBitCount == 8
   ) false;
   return_if_fail (le32toh(info->biCompression) == BI_RGB) false;
+
+  uint16_t cursor_width = le16toh(entry->bWidth);
+  uint16_t cursor_height = le16toh(entry->bHeight);
+  unsigned int shift = stdc_trailing_zeros(biBitCount);
+  uint16_t cursor_width_h =
+    (((cursor_width << shift) + 31) & ~31) >> shift;
+  // pixel rows are stride padded, see PlzjCursor_apply()
+  return_if_fail (
+    (uint32_t) cursor_width_h * cursor_height <=
+    le32toh(info->biSizeImage)) false;
+  size_t colors_size = sizeof(uint32_t) * (1 << biBitCount);
+  size_t mask_size = (size_t) ((cursor_width + 31) / 32 * 4) * cursor_height;
+  return_if_fail (
+    sizeof(*info) + colors_size + le32toh(info->biSizeImage) + mask_size <=
+    le32toh(entry->dwDIBSize)) false;
 
   return true;
 }
@@ -462,6 +480,8 @@ static void PlzjCursorRes_destroy (const struct PlzjCursorRes *curres) {
 static int PlzjCursorRes_init (
     struct PlzjCursorRes *curres, const struct PlzjBuffer *buf,
     unsigned long tag) {
+  return_if_fail (plzj_cursor_valid(buf->data, buf->size)) ERR(PL_EINVAL);
+
   curres->tag = tag;
   curres->buf = *buf;
 
@@ -832,6 +852,14 @@ bool PlzjImage_valid (
     (le16toh(info->biBitCount) * le32toh(info->biWidth) + 31) / 32 * 4 *
     le32toh(info->biHeight) <= le32toh(info->biSizeImage)) false;
 
+  return_if_fail (
+    le32toh(info->biSize) >= sizeof(BITMAPINFOHEADER) &&
+    (uint64_t) sizeof(BITMAPFILEHEADER) + le32toh(info->biSize) <=
+    image->buf.size) false;
+  return_if_fail (
+    (uint64_t) le32toh(header->bfOffBits) + le32toh(info->biSizeImage) <=
+    image->buf.size) false;
+
   return true;
 }
 
@@ -934,7 +962,7 @@ static int PlzjImage_uncompress_rle (
   uint16_t *out = (void *) dst;
   size_t in_i = 0;
   size_t out_i = 0;
-  for (; in_i < srclen / 2 - 3 && out_i < dstlen / 2; ) {
+  for (; in_i + 3 < srclen / 2 && out_i < dstlen / 2; ) {
     if (in[in_i] == 0 && in[in_i + 1] == 0 && in[in_i + 2] != 0) {
       for (uint16_t i = 0; i < le16toh(in[in_i + 2]); i++) {
         out[out_i] = in[in_i + 3];
@@ -962,6 +990,8 @@ static int PlzjImage_uncompress_zlib (
     void *dst, size_t *dstlenp, const void *src, size_t srclen) {
   uLongf dstlen = *dstlenp;
 
+  return_if_fail (srclen >= 4) ERR(PL_EFORMAT);
+
   int res = uncompress(
     dst, &dstlen, (const unsigned char *) src + 4, srclen - 4);
   return_if_fail (res == Z_OK) ERR_ZLIB(uncompress, res);
@@ -982,6 +1012,7 @@ static int PlzjImage_uncompress_zlib (
 static int PlzjImage_uncompress_type (
     void *dst, size_t *dstlenp, void *src, size_t srclen, const void *key,
     unsigned int video_type) {
+  return_if_fail (srclen >= 4) ERR(PL_EFORMAT);
   return_if_fail (video_type <= (PLZJ_VIDEO_ZLIB | PLZJ_VIDEO_ENC))
     ERR(PL_ENOTSUP);
 
@@ -1014,6 +1045,7 @@ fail:
 // lxefileplay::jkjieyasuobmp()
 static int PlzjImage_uncompress_jk (
     void *dst, size_t *dstlenp, void *src, size_t srclen, const void *key) {
+  return_if_fail (srclen >= 20) ERR(PL_EFORMAT);
   return_if_fail (*(uint64_t *) src == (uint64_t) -1) ERR(PL_EFORMAT);
 
   unsigned int video_type = le32toh(((uint32_t *) src)[2]);
@@ -1045,7 +1077,7 @@ static int PlzjImage_uncompress_jk (
   // lxefileplay::buildbmpfilehead()
   uint16_t width = le16toh(((uint16_t *) buf)[0]);
   uint16_t height = le16toh(((uint16_t *) buf)[1]);
-  if_fail (width * height + 8u <= buflen) {
+  if_fail ((uint32_t) width * height + 8 <= buflen) {
     ret = ERR(PL_EFORMAT);
     goto fail;
   }
@@ -1120,6 +1152,7 @@ fail:
 static int PlzjImage_uncompress (
     void *dst, size_t *dstlenp, void *src, size_t srclen, const void *key,
     unsigned int video_type) {
+  return_if_fail (srclen >= 8) ERR(PL_EFORMAT);
   return *(uint64_t *) src == (uint64_t) -1 ?
     PlzjImage_uncompress_jk(dst, dstlenp, src, srclen, key) :
     PlzjImage_uncompress_type(dst, dstlenp, src, srclen, key, video_type);
@@ -1722,6 +1755,7 @@ int PlzjVideo_write_apng (
 
     // reset previous cursor area
     struct PlzjRect rect_frame;
+    PlzjRect_init(&rect_frame);
     if (draw_cursor) {
       PlzjRect_iadd(&rect_frame, &rect_cursor);
       if (draw_click) {
@@ -1740,10 +1774,6 @@ int PlzjVideo_write_apng (
     }
 
     // apply / draw subframes
-    if (!draw_cursor) {
-      PlzjRect_init(&rect_frame);
-    }
-
     const struct PlzjCursor *cursor = &frame->cursor;
     bool cursor_valid =
       with_cursor && PlzjCursor_valid(cursor) && cursor->curres != NULL;
@@ -1822,8 +1852,9 @@ int PlzjVideo_write_apng (
     xs[DIM / 2 - 1] = cursor->p.x;
     ys[DIM / 2 - 1] = cursor->p.y;
     for (unsigned int a = 1; a < DIM / 2; a++) {
-      const struct PlzjCursor *cursor_bw = &video->frames[i - a]->cursor;
-      if (i < a || !PlzjCursor_valid(cursor_bw)) {
+      const struct PlzjCursor *cursor_bw =
+        i < a ? NULL : &video->frames[i - a]->cursor;
+      if (cursor_bw == NULL || !PlzjCursor_valid(cursor_bw)) {
         int32_t x = xs[DIM / 2 - a];
         int32_t y = ys[DIM / 2 - a];
         for (unsigned int b = a; b < DIM / 2; b++) {
@@ -1841,8 +1872,10 @@ int PlzjVideo_write_apng (
     xs[DIM / 2] = cursor_next->p.x;
     ys[DIM / 2] = cursor_next->p.y;
     for (unsigned int a = 1; a < DIM / 2; a++) {
-      const struct PlzjCursor *cursor_fw = &video->frames[i + a + 1]->cursor;
-      if (i + a + 1 >= video->frames_cnt || !PlzjCursor_valid(cursor_fw)) {
+      const struct PlzjCursor *cursor_fw =
+        i + a + 1 >= video->frames_cnt ?
+        NULL : &video->frames[i + a + 1]->cursor;
+      if (cursor_fw == NULL || !PlzjCursor_valid(cursor_fw)) {
         int32_t x = xs[DIM / 2 + a - 1];
         int32_t y = ys[DIM / 2 + a - 1];
         for (unsigned int b = a; b < DIM / 2; b++) {
@@ -1935,17 +1968,21 @@ int PlzjVideo_save_cursors (const struct PlzjVideo *video, const char *dir) {
     ERR(PL_EINVAL);
 
   size_t dir_len = strlen(dir);
-  char path[dir_len + 65];
+  char *path = malloc(dir_len + 65);
+  return_if_fail (path != NULL) ERR_STD(malloc);
   memcpy(path, dir, dir_len);
   char *filename = path + dir_len;
   filename[0] = DIR_SEP;
   filename++;
 
+  int ret = 0;
+
   snprintf(filename, 64, "cursors.txt");
   FILE *out_cursors = mfopen(path, "w");
-  return_if_fail (out_cursors != NULL) ERR_STD(mfopen);
-
-  int ret = 0;
+  if_fail (out_cursors != NULL) {
+    ret = ERR_STD(mfopen);
+    goto fail_open;
+  }
 
   for (size_t i = 0; i < video->curreses_cnt; i++) {
     struct PlzjCursorRes *curres = video->curreses[i];
@@ -1983,6 +2020,8 @@ int PlzjVideo_save_cursors (const struct PlzjVideo *video, const char *dir) {
   ret = 0;
 fail:
   fclose(out_cursors);
+fail_open:
+  free(path);
   return ret;
 }
 
@@ -2015,13 +2054,20 @@ static int PlzjVideo_read_cursor (
     }
   }
 
+  if_fail (plzj_cursor_valid(buf.data, buf.size)) {
+    sc_warning("invalid cursor data (tag %08lx), ignoring\n", tag);
+    ret = 0;
+    goto fail;
+  }
+
   curres = ptrarray_new(
     &video->curreses, &video->curreses_cnt, sizeof(*curres));
   if_fail (curres != NULL) {
     ret = -sc_exc.code;
     goto fail;
   }
-  PlzjCursorRes_init(curres, &buf, tag);
+  ret = PlzjCursorRes_init(curres, &buf, tag);
+  goto_if_fail (ret == 0) fail;
   curres->tag = tag;
   curres->buf = buf;
 
@@ -2214,7 +2260,11 @@ int Plzj_extract_video_or_cursor (
     }
 
     size_t dir_len = strlen(dir);
-    char path[dir_len + 65];
+    char *path = malloc(dir_len + 65);
+    if_fail (path != NULL) {
+      ret = ERR_STD(malloc);
+      goto fail;
+    }
     memcpy(path, dir, dir_len);
     char *filename = path + dir_len;
     filename[0] = DIR_SEP;
@@ -2223,6 +2273,7 @@ int Plzj_extract_video_or_cursor (
 
     ret = PlzjVideo_save_apng(
       &video, path, flags, transitions_cnt, compression_level, nproc);
+    free(path);
     goto_if_fail (ret == 0) fail;
   }
   if (extract_cursor) {

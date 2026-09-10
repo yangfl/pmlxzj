@@ -591,7 +591,6 @@ static int do_modify (
   }
   ret = copy(file, pf->file, pf->file_size, 0);
   if_fail (ret == 0) {
-    ret = ERR_STD(fseeko);
     what = "copy";
     goto fail_file;
   }
@@ -634,6 +633,7 @@ static int do_modify (
   if (0) {
 fail:
     PlzjFile_destroy(&pf2);
+    goto fail_file;
   }
   if (0) {
 fail_file:
