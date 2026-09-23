@@ -53,6 +53,7 @@ int ThreadPool_init (
 
 #include <assert.h>
 #include <stdalign.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -80,12 +81,12 @@ struct ThreadPoolWorker {
 struct _ThreadPool {
   struct ThreadPoolWorker *workers;
   unsigned int nproc;
-  volatile int err_i;
+  atomic_int err_i;
 
   char name[16];
 
   /// -1: stopped, 0: idle, 1: busy
-  volatile signed char state;
+  atomic_schar state;
   mtx_t mutex;
   cnd_t producer_cond;
   cnd_t consumer_cond;
@@ -180,28 +181,22 @@ int ThreadPool_run (void *ctx, ThreadPool_func_t func, void *arg) {
   return_if_fail (mtx_lock(&pool->mutex) == thrd_success) ERR_STD(mtx_lock);
 
   int ret = 0;
-  do {
-    if (pool->state > 0) {
-      if_fail (cnd_wait(&pool->producer_cond, &pool->mutex) == thrd_success) {
-        ret = ERR_STD(cnd_wait);
-        break;
-      }
-    }
-
+  while (true) {
     if_fail (pool->state >= 0) {
       ret = ERR(PL_ESTOP);
       break;
     }
-    if (pool->state > 0) {
-      continue;
+    if (pool->state == 0) {
+      pool->func = func;
+      pool->arg = arg;
+      pool->state = 1;
+      break;
     }
-
-    pool->func = func;
-    pool->arg = arg;
-    pool->state = 1;
-
-    ret = 0;
-  } while (false);
+    if_fail (cnd_wait(&pool->producer_cond, &pool->mutex) == thrd_success) {
+      ret = ERR_STD(cnd_wait);
+      break;
+    }
+  }
 
   mtx_unlock(&pool->mutex);
 
@@ -220,17 +215,13 @@ int ThreadPool_stop (
 
   mtx_lock(&pool->mutex);
 
-  do {
-    if (pool->state > 0) {
-      cnd_wait(&pool->producer_cond, &pool->mutex);
+  while (pool->state > 0) {
+    if_fail (cnd_wait(&pool->producer_cond, &pool->mutex) == thrd_success) {
+      (void) ERR_STD(cnd_wait);
+      break;
     }
-
-    if (pool->state > 0) {
-      continue;
-    }
-
-    pool->state = -1;
-  } while (false);
+  }
+  pool->state = -1;
 
   mtx_unlock(&pool->mutex);
   cnd_broadcast(&pool->consumer_cond);
@@ -311,7 +302,7 @@ int ThreadPool_init (
   }
 
   if_fail (i >= nproc) {
-    pool->workers = realloc(pool->workers, sizeof(pool->workers[0]) * i);
+    sc_warning("ThreadPool: only %u of %u threads spawned\n", i, nproc);
   }
   pool->nproc = i;
   pool->err_i = -1;

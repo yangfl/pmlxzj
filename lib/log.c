@@ -363,7 +363,7 @@ int ScException_stderr (
   } else {
     va_list args;
     va_start(args, format);
-    ret = fprintf(stderr, format, args);
+    ret = vfprintf(stderr, format, args);
     va_end(args);
   }
   ret += ScException_print(exc, (sc_print_fn_t) fprintf, stderr, "  ", "");

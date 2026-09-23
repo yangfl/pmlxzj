@@ -122,7 +122,7 @@ __attribute_artificial__ __attribute_warn_unused_result__ __attribute_pure__
 __nonnull() __attr_access((__read_only__, 1))
 static inline long plzj_regcode_calc (const char *regcode1) {
   long code1 = -100;
-  for (size_t i = 0; regcode1[i] != '\0'; i++) {
+  for (size_t i = 0; i < 20 && regcode1[i] != '\0'; i++) {
     code1 += regcode1[i];
   }
   code1 /= 1.5432;
@@ -135,13 +135,17 @@ __attribute_artificial__ __attribute_warn_unused_result__ __attribute_pure__
 __nonnull() __attr_access((__read_only__, 1))
 static inline long plzj_regcode_dec (const char *regcode2) {
   long code2 = 0;
-  for (size_t i = 0; regcode2[i] != '\0'; i++) {
+  for (size_t i = 0; i < 20 && regcode2[i] != '\0'; i++) {
     char s = regcode2[i] - 20 - 10 * (i % 2) + i / 3;
     if (s < '0' || s > '9') {
       return -1;
     }
-    code2 *= 10;
-    code2 += s - '0';
+    if (__builtin_mul_overflow(code2, 10, &code2)) {
+      return -1;
+    }
+    if (__builtin_add_overflow(code2, s - '0', &code2)) {
+      return -1;
+    }
   }
   code2 /= 124;
   return code2;

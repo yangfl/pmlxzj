@@ -480,9 +480,12 @@ static int do_extract (
     fps = 1000. / frame_ms;
     unsigned int ratio = 1;
     if (options->with_cursor) {
-      ratio = ((uint32_t) (options->fps * frame_ms) + 500) / 1000;
-      if (ratio < 1) {
+      float r = options->fps * frame_ms / 1000;
+      ratio = (unsigned int) (r + .5);
+      if (r < 1) {
         ratio = 1;
+      } else if (r > 1000) {
+        ratio = 1000;
       }
       fps *= ratio;
       if (options->verbose || fabs(fps - options->fps) > 0.01) {
@@ -591,7 +594,6 @@ static int do_modify (
   }
   ret = copy(file, pf->file, pf->file_size, 0);
   if_fail (ret == 0) {
-    ret = ERR_STD(fseeko);
     what = "copy";
     goto fail_file;
   }
@@ -634,6 +636,7 @@ static int do_modify (
   if (0) {
 fail:
     PlzjFile_destroy(&pf2);
+    goto fail_file;
   }
   if (0) {
 fail_file:

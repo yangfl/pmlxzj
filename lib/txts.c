@@ -13,7 +13,8 @@
 
 int Plzj_extract_txts (const struct Plzj *pl, const char *dir) {
   size_t dir_len = strlen(dir);
-  char path[dir_len + 65];
+  char *path = malloc(dir_len + 65);
+  return_if_fail (path != NULL) ERR_STD(malloc);
   memcpy(path, dir, dir_len);
   char *filename = path + dir_len;
   filename[0] = DIR_SEP;
@@ -21,19 +22,25 @@ int Plzj_extract_txts (const struct Plzj *pl, const char *dir) {
 
   int ret;
 
-  return_if_fail (fseeko(pl->file, pl->keyframes_offset, SEEK_SET) == 0)
-    ERR_STD(fseeko);
+  if_fail (fseeko(pl->file, pl->keyframes_offset, SEEK_SET) == 0) {
+    ret = ERR_STD(fseeko);
+    goto fail;
+  }
   snprintf(filename, 64, "keyframes.txt");
   ret = dump(path, pl->file, pl->keyframes_size, 0);
-  return_if_fail (ret >= 0) ret;
+  goto_if_fail (ret >= 0) fail;
 
   if (pl->clicks_offset != -1) {
-    return_if_fail (fseeko(pl->file, pl->clicks_offset, SEEK_SET) == 0)
-      ERR_STD(fseeko);
+    if_fail (fseeko(pl->file, pl->clicks_offset, SEEK_SET) == 0) {
+      ret = ERR_STD(fseeko);
+      goto fail;
+    }
     snprintf(filename, 64, "clicks.txt");
     ret = dump(path, pl->file, pl->clicks_size, 0);
-    return_if_fail (ret >= 0) ret;
+    goto_if_fail (ret >= 0) fail;
   }
 
-  return 0;
+fail:
+  free(path);
+  return ret;
 }

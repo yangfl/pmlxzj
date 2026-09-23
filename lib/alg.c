@@ -15,6 +15,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 #include "include/alg.h"
 #include "macro.h"
@@ -56,7 +57,9 @@ static size_t plzj_iconv (
   size_t ret = 0;
   char *out = dst;
   size_t avail = dstsize - 1;
-  iconv(cd, (char **) &src, &srclen, &out, &avail);
+  if (iconv(cd, (char **) &src, &srclen, &out, &avail) == (size_t) -1) {
+    sc_warning("iconv: conversion incomplete (%s)\n", strerror(errno));
+  }
   avail++;
   dst[dstsize - avail] = '\0';
   ret = dstsize - avail;

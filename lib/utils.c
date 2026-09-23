@@ -101,7 +101,7 @@ fail:
   return ret;
 }
 
-#if defined HAVE_COPY_FILE_RANGE || defined __linux__ || defined __freebsd__
+#if defined HAVE_COPY_FILE_RANGE || defined __linux__ || defined __FreeBSD__
 
 int copy (FILE *dst, FILE *src, size_t len, unsigned int bsize) {
   off_t inoff = ftello(src);
@@ -115,32 +115,42 @@ int copy (FILE *dst, FILE *src, size_t len, unsigned int bsize) {
   ssize_t res;
 
   res = copy_file_range(fileno(src), &inoff, fileno(dst), &outoff, len, 0);
-  if_fail (res >= 0 && (size_t) res == len) {
-    return_if_fail (res < 0 && errno == EXDEV) ERR_STD(copy_file_range);
-#ifndef __linux__
-    goto fallback;
-#else
-    fseeko(dst, 0, SEEK_END);
-    off_t dstsize = ftello(dst);
-    fseeko(dst, outoff, SEEK_SET);
-    return_if_fail (dstsize != -1) ERR_STD(ftello);
-
-    if (dstsize != outoff) {
-      goto fallback;
-    }
-
-    res = sendfile(fileno(dst), fileno(src), &inoff, len);
-    if_fail (res >= 0 && (size_t) res == len) {
-      return_if_fail (res < 0 && errno == EINVAL) ERR_STD(sendfile);
-      goto fallback;
-    }
-#endif
+  return_if_fail (res >= 0 || errno == EXDEV) ERR_STD(copy_file_range);
+  if (res > 0) {
+    goto_if_fail ((size_t) res >= len) fallback_seeked;
+    goto end;
   }
 
+#ifdef __linux__
+  return_if_fail (fseeko(dst, 0, SEEK_END) == 0) ERR_STD(fseeko);
+  off_t dstsize = ftello(dst);
+  return_if_fail (fseeko(dst, outoff, SEEK_SET) == 0) ERR_STD(fseeko);
+  return_if_fail (dstsize != -1) ERR_STD(ftello);
+
+  if (dstsize != outoff) {
+    goto fallback;
+  }
+
+  res = sendfile(fileno(dst), fileno(src), &inoff, len);
+  return_if_fail (res >= 0 || errno == EINVAL) ERR_STD(sendfile);
+  if (res > 0) {
+    outoff += res;
+    goto_if_fail ((size_t) res >= len) fallback_seeked;
+    goto end;
+  }
+#endif
+
+  goto fallback;
+
+end:
   fseeko(src, inoff, SEEK_SET);
   fseeko(dst, outoff, SEEK_SET);
   return 0;
 
+fallback_seeked:
+  fseeko(src, inoff, SEEK_SET);
+  fseeko(dst, outoff, SEEK_SET);
+  len -= res;
 fallback:
   return copy_io(dst, src, len, bsize);
 }
@@ -202,7 +212,9 @@ int copy_uncompress (
         goto fail;
       }
 
-      if_fail (fwrite(bufout, bsize - strm.avail_out, 1, dst) == 1) {
+      if_fail (
+          bsize == strm.avail_out ||
+          fwrite(bufout, bsize - strm.avail_out, 1, dst) == 1) {
         ret = ERR_STD(fwrite);
         goto fail;
       }

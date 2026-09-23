@@ -182,6 +182,11 @@ int Plzj_init (
 
   int ret;
 
+  if_fail (pl->begin_offset >= 0 && pl->end_offset > pl->begin_offset) {
+    ret = ERR(PL_EFORMAT);
+    goto fail;
+  }
+
   // footer
   ret = read_at(
     file, pl->end_offset + PLZJ_OFFSET_FOOTER, SEEK_SET, &pl->footer,
@@ -206,6 +211,10 @@ int Plzj_init (
   pl->keyframes_offset =
     pl->end_offset + PLZJ_OFFSET_FOOTER - sizeof(pl->player) -
     sizeof(size_h) - pl->keyframes_size;
+  if_fail (pl->keyframes_offset >= pl->begin_offset) {
+    ret = ERR(PL_EFORMAT);
+    goto fail;
+  }
 
   if (pl->player.has_clicks == 0) {
     pl->clicks_size = 0;
@@ -218,6 +227,10 @@ int Plzj_init (
 
     pl->clicks_size = le32toh(size_h);
     pl->clicks_offset = pl->keyframes_offset - sizeof(size_h) - pl->clicks_size;
+    if_fail (pl->clicks_offset >= pl->begin_offset) {
+      ret = ERR(PL_EFORMAT);
+      goto fail;
+    }
   }
 
   // audio / video
@@ -249,6 +262,11 @@ int Plzj_init (
   ret = read_at(
     file, pl->video_offset, SEEK_SET, &pl->video, sizeof(pl->video));
   goto_if_fail (ret == 0) fail;
+
+  if (le32toh(pl->video.frame_ms) == 0) {
+    sc_warning("frame_ms is 0, resetting to 200 (5 FPS)\n");
+    pl->video.frame_ms = htole32(200);
+  }
 
   // lock state
   uint32_t editlock_key = le32toh(pl->footer.editlock_key);
@@ -376,12 +394,17 @@ int PlzjFile_init (struct PlzjFile *pf, FILE *file) {
       &pf->extfooter, sizeof(pf->extfooter));
     goto_if_fail (ret == 0) fail;
     pf->sections_cnt = le32toh(pf->extfooter.sections_cnt);
+    if_fail (
+        pf->sections_cnt > 0 &&
+        (uint64_t) pf->sections_cnt * 64 <= (uint64_t) pf->file_size) {
+      ret = ERR(PL_EFORMAT);
+      goto fail;
+    }
   }
 
-  size_t sections_len = sizeof(pf->sections[0]) * pf->sections_cnt;
-  pf->sections = malloc(sections_len);
+  pf->sections = calloc(pf->sections_cnt, sizeof(pf->sections[0]));
   if_fail (pf->sections != NULL) {
-    ret = ERR_STD(malloc);
+    ret = ERR_STD(calloc);
     goto fail;
   }
 
@@ -407,6 +430,14 @@ int PlzjFile_init (struct PlzjFile *pf, FILE *file) {
         (off_t) sizeof(struct PlzjLxeSection) * (pf->sections_cnt - i),
         SEEK_END, &section, sizeof(section));
       goto_if_fail (ret == 0) fail_section;
+
+      off_t section_end =
+        ((off_t) le32toh(section.end_offset_hi) << 32) |
+        le32toh(section.end_offset);
+      if_fail (section_end >= 0 && section_end <= pf->file_size) {
+        ret = ERR(PL_EFORMAT);
+        goto fail_section;
+      }
 
       ret = Plzj_init(pf->sections + i, file, &section);
       goto_if_fail (ret == 0) fail_section;
